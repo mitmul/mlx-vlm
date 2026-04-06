@@ -5,10 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import mlx.core as mx
 import mlx.nn as nn
-import mlx_vlm.utils as utils_module
 import pytest
 from mlx_lm.utils import quantize_model
 
+import mlx_vlm.utils as utils_module
 from mlx_vlm.utils import (
     StoppingCriteria,
     get_class_predicate,

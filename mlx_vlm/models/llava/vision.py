@@ -87,10 +87,12 @@ class MLP(nn.Module):
         self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size)
 
     def _gelu_pytorch_tanh(self, x: mx.array) -> mx.array:
-        return 0.5 * x * (
-            1.0
-            + mx.tanh(
-                math.sqrt(2.0 / math.pi) * (x + 0.044715 * mx.power(x, 3))
+        return (
+            0.5
+            * x
+            * (
+                1.0
+                + mx.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * mx.power(x, 3)))
             )
         )
 

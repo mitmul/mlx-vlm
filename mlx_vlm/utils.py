@@ -419,9 +419,10 @@ def load(
         ValueError: If model class or args class are not found.
     """
     force_download = kwargs.get("force_download", False)
-    model_path = get_model_path(
-        path_or_hf_repo, force_download=force_download, revision=revision
-    )
+    model_path_kwargs = {"revision": revision}
+    if force_download:
+        model_path_kwargs["force_download"] = force_download
+    model_path = get_model_path(path_or_hf_repo, **model_path_kwargs)
     model = load_model(model_path, lazy, **kwargs)
     if adapter_path is not None:
         model = apply_lora_layers(model, adapter_path)
@@ -774,6 +775,11 @@ def load_image(image_source: Union[str, Path, BytesIO], timeout: int = 10):
     """
     import base64
 
+    original_image_source = image_source
+    is_remote_url = isinstance(image_source, str) and image_source.startswith(
+        ("http://", "https://")
+    )
+
     try:
         if not isinstance(image_source, (str, Path, BytesIO)):
             raise ValueError(
@@ -784,9 +790,7 @@ def load_image(image_source: Union[str, Path, BytesIO], timeout: int = 10):
                 raise ValueError("Invalid data URI format - missing comma separator")
             _, data = image_source.split(",", 1)
             image_source = BytesIO(base64.b64decode(data))
-        if isinstance(image_source, str) and image_source.startswith(
-            ("http://", "https://")
-        ):
+        if is_remote_url:
             response = requests.get(image_source, stream=True, timeout=timeout)
             response.raise_for_status()
             image_source = response.raw
@@ -795,6 +799,10 @@ def load_image(image_source: Union[str, Path, BytesIO], timeout: int = 10):
     except ValueError:
         raise
     except Exception as e:
+        if is_remote_url:
+            raise ValueError(
+                f"Failed to load image from URL: {original_image_source} with error {e}"
+            ) from e
         raise ValueError(f"Failed to load image from {image_source}: {e}") from e
 
     image = ImageOps.exif_transpose(image)
@@ -1137,29 +1145,52 @@ def prepare_inputs(
     )
     has_audio = audio is not None and (not hasattr(audio, "__len__") or len(audio) > 0)
     if not has_images and not has_audio:
-        tokenizer = (
-            processor.tokenizer if hasattr(processor, "tokenizer") else processor
-        )
+        tokenizer = getattr(processor, "tokenizer", processor)
         # Ensure pad_token exists when padding text-only inputs
-        if padding and tokenizer.pad_token is None:
+        if padding and hasattr(tokenizer, "pad_token") and tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        inputs = tokenizer(
-            prompts,
-            add_special_tokens=add_special_tokens,
-            padding=padding,
-            padding_side=padding_side,
-            return_tensors=return_tensors,
+        if callable(tokenizer):
+            inputs = tokenizer(
+                prompts,
+                add_special_tokens=add_special_tokens,
+                padding=padding,
+                padding_side=padding_side,
+                return_tensors=return_tensors,
+            )
+        else:
+            inputs = process_inputs(
+                processor,
+                prompts=prompts,
+                images=None,
+                audio=None,
+                add_special_tokens=add_special_tokens,
+                padding=padding,
+                padding_side=padding_side,
+                return_tensors=return_tensors,
+                **kwargs,
+            )
+        raw_input_ids = (
+            inputs["input_ids"] if isinstance(inputs, dict) else inputs.input_ids
+        )
+        raw_attention_mask = (
+            inputs["attention_mask"]
+            if isinstance(inputs, dict)
+            else inputs.attention_mask
         )
         input_ids = (
-            inputs.input_ids
-            if isinstance(inputs.input_ids, mx.array)
-            else mx.array(inputs.input_ids)
+            raw_input_ids
+            if isinstance(raw_input_ids, mx.array)
+            else mx.array(raw_input_ids)
         )
         mask = (
-            inputs.attention_mask
-            if isinstance(inputs.attention_mask, mx.array)
-            else mx.array(inputs.attention_mask)
+            raw_attention_mask
+            if isinstance(raw_attention_mask, mx.array)
+            else mx.array(raw_attention_mask)
         )
+        if input_ids.ndim == 1:
+            input_ids = input_ids[None, :]
+        if mask.ndim == 1:
+            mask = mask[None, :]
         return {
             "input_ids": input_ids,
             "attention_mask": mask,

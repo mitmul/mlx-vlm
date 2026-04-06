@@ -3,13 +3,17 @@ from functools import partial
 from math import sqrt
 from typing import Dict, Optional, Union
 
-import cv2
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
 from .config import MLPConfig, VisionConfig
 from .sam import SAMEncoder
+
+try:
+    import cv2
+except ImportError:  # pragma: no cover - exercised indirectly when OpenCV is absent
+    cv2 = None
 
 
 def check_array_shape(arr):
@@ -330,6 +334,9 @@ def resize_image(image, size, antialias=True):
     Returns:
         numpy.ndarray: The resized image array.
     """
+    if cv2 is None:
+        raise ImportError("opencv-python is required for multi_modality image resizing")
+
     img = np.ascontiguousarray(np.asarray(image))
     if img.ndim == 4 and img.shape[0] == 1:  # squeeze stray batch dim
         img = img[0]

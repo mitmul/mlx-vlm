@@ -2,10 +2,10 @@
 
 Below are some tips to port Vision LLMs available on Hugging Face to MLX.
 
-Next, from this directory, do an editable install:
+Next, from the repository root, do an editable install with the test extras:
 
 ```shell
-pip install -e .
+pip install -e ".[test]"
 ```
 
 Then check if the model has weights in the
@@ -34,10 +34,23 @@ To determine the model layer names, we suggest either:
 Additionally, add a test for the new model type to the [model
 tests](https://github.com/Blaizzy/mlx-vlm/tree/main/src/tests/test_models.py).
 
-From the `mlx_vlm/` directory, you can run the tests with:
+From the repository root, run the unit test suite with:
 
 ```shell
-python -m unittest discover tests/
+python -m pytest
+```
+
+or explicitly:
+
+```shell
+python -m pytest mlx_vlm/tests
+```
+
+The model smoke runner is a standalone CLI script rather than part of the
+regular unit test suite. Run it directly when you need it:
+
+```shell
+python mlx_vlm/tests/test_smoke.py --models-file path/to/models.txt --image path/to/image.png
 ```
 
 ## Pull Requests

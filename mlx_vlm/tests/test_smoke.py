@@ -11,33 +11,49 @@ import traceback
 
 import mlx.core as mx
 
+__test__ = False
+
+console = None
+Panel = None
+psutil = None
+tqdm = None
+version = None
+
 
 # Function to check if a package is installed
 def is_package_installed(package_name):
     return importlib.util.find_spec(package_name) is not None
 
 
-# Check required packages
-required_packages = ["psutil", "rich", "tqdm"]
-missing_packages = [pkg for pkg in required_packages if not is_package_installed(pkg)]
-
-if missing_packages:
-    print(f"Missing required packages: {', '.join(missing_packages)}")
-    print("Please install them using: pip install " + " ".join(missing_packages))
-    sys.exit(1)
-
-from importlib.metadata import version
-
-import psutil
-from rich.console import Console
-from rich.panel import Panel
-from tqdm import tqdm
-
 from mlx_vlm import generate, load
 from mlx_vlm.prompt_utils import apply_chat_template
 
-# Initialize console
-console = Console()
+
+def load_cli_dependencies():
+    global Panel, console, psutil, tqdm, version
+
+    required_packages = ["psutil", "rich", "tqdm"]
+    missing_packages = [
+        pkg for pkg in required_packages if not is_package_installed(pkg)
+    ]
+
+    if missing_packages:
+        print(f"Missing required packages: {', '.join(missing_packages)}")
+        print("Please install them using: pip install " + " ".join(missing_packages))
+        raise SystemExit(1)
+
+    from importlib.metadata import version as importlib_version
+
+    import psutil as psutil_module
+    from rich.console import Console
+    from rich.panel import Panel as RichPanel
+    from tqdm import tqdm as tqdm_module
+
+    version = importlib_version
+    psutil = psutil_module
+    Panel = RichPanel
+    tqdm = tqdm_module
+    console = Console()
 
 
 def parse_args():
@@ -96,7 +112,7 @@ def get_device_info():
         return None
 
 
-def test_model_loading(model_path, trust_remote_code=False):
+def run_model_loading_check(model_path, trust_remote_code=False):
     try:
         console.print("[bold green]Loading model...")
         start_time = time.time()
@@ -113,7 +129,7 @@ def test_model_loading(model_path, trust_remote_code=False):
         return None, None, None, True
 
 
-def test_generation(
+def run_generation_check(
     model, processor, config, model_path, test_inputs, vision_language=True
 ):
     try:
@@ -168,6 +184,7 @@ def test_generation(
 
 
 def main():
+    load_cli_dependencies()
     args = parse_args()
 
     # Load models list
@@ -194,14 +211,14 @@ def main():
         console.print(Panel(f"Testing {model_path}", style="bold blue"))
 
         # Run tests
-        model, processor, config, error = test_model_loading(
+        model, processor, config, error = run_model_loading_check(
             model_path, args.trust_remote_code
         )
 
         if not error and model:
             print("\n")
             # Test vision-language generation
-            error |= test_generation(
+            error |= run_generation_check(
                 model, processor, config, model_path, test_inputs, vision_language=True
             )
 
@@ -212,7 +229,7 @@ def main():
             mx.reset_peak_memory()
 
             # Test language-only generation
-            error |= test_generation(
+            error |= run_generation_check(
                 model, processor, config, model_path, test_inputs, vision_language=False
             )
             print("\n")
