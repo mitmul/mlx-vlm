@@ -390,6 +390,12 @@ def convert(
 
     save_weights(mlx_path, target, donate_weights=True)
 
+    from .speculative.drafters.qwen3_5_mtp.split import save_qwen3_5_mtp_sidecar
+
+    mtp_sidecar = save_qwen3_5_mtp_sidecar(model_path, mlx_path, config)
+    if mtp_sidecar is not None:
+        print(f"[INFO] Preserved MTP weights in {mtp_sidecar.name}")
+
     # Copy Python and JSON files from the model path to the MLX path
     for pattern in ["*.py", "*.json"]:
         files = glob.glob(str(model_path / pattern))

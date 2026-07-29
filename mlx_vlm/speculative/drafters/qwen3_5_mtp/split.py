@@ -66,6 +66,59 @@ def _load_selected_tensors(file: Path, keys: list[str]) -> Dict[str, mx.array]:
     return tensors
 
 
+def save_qwen3_5_mtp_sidecar(
+    source_path: Path,
+    output_path: Path,
+    config: dict,
+) -> Optional[Path]:
+    """Preserve native Qwen3.5/3.6 MTP tensors beside a converted model.
+
+    The target model intentionally drops ``mtp.*`` weights while loading because
+    they belong to a separate speculative drafter. Conversion must therefore
+    collect them from the source checkpoint before writing the target model.
+    The ``mtp.safetensors`` layout is understood by MTPLX and remains invisible
+    to normal mlx-vlm target-model loading.
+    """
+    if config.get("model_type") not in {"qwen3_5", "qwen3_5_moe"}:
+        return None
+
+    selected = {}
+    source_is_mlx = False
+    for file, keys in _iter_mtp_keys(source_path):
+        source_is_mlx = source_is_mlx or _is_mlx_safetensors(file)
+        selected.update(_load_selected_tensors(file, keys))
+
+    if not selected:
+        return None
+
+    if not source_is_mlx:
+        selected = Qwen3_5MTPDraftModel.sanitize(None, selected)
+    else:
+        selected = {
+            key[len("mtp.") :] if key.startswith("mtp.") else key: value
+            for key, value in selected.items()
+        }
+
+    selected = {
+        key if key.startswith("mtp.") else f"mtp.{key}": value
+        for key, value in selected.items()
+    }
+    output_path.mkdir(parents=True, exist_ok=True)
+    sidecar_path = output_path / "mtp.safetensors"
+    mx.save_safetensors(
+        str(sidecar_path),
+        selected,
+        metadata={"format": "mlx"},
+    )
+
+    extra_tensors = config.get("mlx_lm_extra_tensors")
+    if not isinstance(extra_tensors, dict):
+        extra_tensors = {}
+        config["mlx_lm_extra_tensors"] = extra_tensors
+    extra_tensors["mtp_file"] = sidecar_path.name
+    return sidecar_path
+
+
 def split_qwen3_5_mtp(
     source: str,
     output: str,

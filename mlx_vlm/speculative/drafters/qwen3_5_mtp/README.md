@@ -41,6 +41,23 @@ split_qwen3_5_mtp(
 )
 ```
 
+## Convert for MTPLX
+
+When a Qwen3.5 or Qwen3.6 source checkpoint contains native `mtp.*` tensors,
+`mlx_vlm convert` automatically preserves them as `mtp.safetensors` next to
+the converted target weights. For example:
+
+```bash
+uv run mlx_vlm convert \
+  --hf-path Qwen/Qwen3.5-4B \
+  --mlx-path ./Qwen3.5-4B-4bit \
+  -q --q-mode mxfp4
+```
+
+The target model uses the requested quantization while the MTP sidecar remains
+in BF16, which is the layout expected by MTPLX. The generated `config.json`
+points to the sidecar through `mlx_lm_extra_tensors.mtp_file`.
+
 ## Generate
 
 ```bash

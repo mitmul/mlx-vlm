@@ -1,4 +1,5 @@
 import base64
+import importlib
 import json
 import struct
 from io import BytesIO
@@ -28,6 +29,8 @@ from mlx_vlm.utils import (
     sanitize_weights,
     update_module_configs,
 )
+
+convert_module = importlib.import_module("mlx_vlm.convert")
 
 
 class MockTensor:
@@ -344,6 +347,67 @@ def test_convert_preserves_existing_deepseek_v4_quantization():
         "group_size": 32,
         "bits": 8,
         "mode": "mxfp8",
+    }
+
+
+def test_convert_preserves_qwen_mtp_for_mtplx(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    output = tmp_path / "converted"
+    source.mkdir()
+    config = {
+        "model_type": "qwen3_5",
+        "text_config": {"mtp_num_hidden_layers": 1},
+    }
+    (source / "config.json").write_text(json.dumps(config))
+    mx.save_safetensors(
+        str(source / "model-mtp.safetensors"),
+        {
+            "mtp.fc.weight": mx.ones((16, 32)),
+            "mtp.pre_fc_norm_hidden.weight": mx.zeros((16,)),
+        },
+        metadata={},
+    )
+
+    class TinyModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.proj = nn.Linear(32, 32, bias=False)
+
+    class TinyProcessor:
+        def save_pretrained(self, _):
+            pass
+
+    monkeypatch.setattr(
+        convert_module, "get_model_path", lambda *_args, **_kwargs: source
+    )
+    monkeypatch.setattr(
+        convert_module,
+        "fetch_from_hub",
+        lambda *_args, **_kwargs: (TinyModel(), dict(config), TinyProcessor()),
+    )
+    monkeypatch.setattr(
+        convert_module, "create_model_card", lambda *_args, **_kwargs: None
+    )
+
+    convert_module.convert(
+        hf_path=str(source),
+        mlx_path=str(output),
+        quantize=True,
+        q_group_size=32,
+        q_bits=4,
+        q_mode="mxfp4",
+    )
+
+    converted_config = json.loads((output / "config.json").read_text())
+    assert converted_config["quantization"] == {
+        "group_size": 32,
+        "bits": 4,
+        "mode": "mxfp4",
+    }
+    assert converted_config["mlx_lm_extra_tensors"] == {"mtp_file": "mtp.safetensors"}
+    assert set(mx.load(str(output / "mtp.safetensors"))) == {
+        "mtp.fc.weight",
+        "mtp.pre_fc_norm_hidden.weight",
     }
 
 

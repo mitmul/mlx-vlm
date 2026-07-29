@@ -55,7 +55,10 @@ from mlx_vlm.speculative.drafters.gemma4_dflash import ModelConfig as Gemma4DFla
 from mlx_vlm.speculative.drafters.glm4_moe_lite_mtp.split import split_glm4_moe_lite_mtp
 from mlx_vlm.speculative.drafters.qwen3_5_mtp import ModelConfig as Qwen3_5MTPConfig
 from mlx_vlm.speculative.drafters.qwen3_5_mtp import Qwen3_5MTPDraftModel
-from mlx_vlm.speculative.drafters.qwen3_5_mtp.split import split_qwen3_5_mtp
+from mlx_vlm.speculative.drafters.qwen3_5_mtp.split import (
+    save_qwen3_5_mtp_sidecar,
+    split_qwen3_5_mtp,
+)
 from mlx_vlm.speculative.drafters.qwen3_dflash import DFlashDraftModel, ModelConfig
 from mlx_vlm.speculative.eagle3 import (
     _eagle3_block_settings,
@@ -3169,6 +3172,35 @@ def test_split_qwen3_5_mtp_writes_sidecar_without_index_mtp_entries(tmp_path):
     assert cfg["block_size"] == 3
     assert "fc.weight" in weights
     assert weights["pre_fc_norm_hidden.weight"][0].item() == 1.0
+
+
+def test_save_qwen3_5_mtp_sidecar_preserves_mtplx_layout(tmp_path):
+    source = tmp_path / "source"
+    output = tmp_path / "converted"
+    source.mkdir()
+    config = {
+        "model_type": "qwen3_5",
+        "text_config": {"mtp_num_hidden_layers": 1},
+    }
+    mx.save_safetensors(
+        str(source / "model-mtp.safetensors"),
+        {
+            "mtp.fc.weight": mx.ones((16, 32)),
+            "mtp.pre_fc_norm_hidden.weight": mx.zeros((16,)),
+        },
+        metadata={},
+    )
+
+    sidecar = save_qwen3_5_mtp_sidecar(source, output, config)
+
+    assert sidecar == output / "mtp.safetensors"
+    assert config["mlx_lm_extra_tensors"] == {"mtp_file": "mtp.safetensors"}
+    weights = mx.load(str(sidecar))
+    assert set(weights) == {
+        "mtp.fc.weight",
+        "mtp.pre_fc_norm_hidden.weight",
+    }
+    assert weights["mtp.pre_fc_norm_hidden.weight"][0].item() == 1.0
 
 
 def test_deepseek_v4_returns_mtp_hidden_and_trims_without_snapshot():
